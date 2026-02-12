@@ -46,6 +46,12 @@ Lastly, if all you want is to download and convert a comic, you can apply the `-
 mandown get https://example.com/comic --convert epub --remove-after
 ```
 
+For CI/automated environments, use `--ci` to output text logs with percentages instead of visual progress bars:
+
+```
+mandown get https://example.com/comic --convert cbz --ci
+```
+
 ### Library usage
 
 Mandown's downloader is exposed through the `mandown.download` command.

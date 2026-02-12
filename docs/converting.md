@@ -14,6 +14,12 @@ A new file will be created in the same directory as the comic, with the same nam
 mandown convert epub /path/to/comic -d /path/to/destination/
 ```
 
+For CI/automated environments, use `--ci` for text logs with percentages instead of visual progress bars:
+
+```
+mandown convert epub /path/to/comic --ci
+```
+
 In the library, conversion is exposed through the `mandown.convert` command.
 
 ```python

@@ -150,6 +150,7 @@ def cli_convert(
     dest_folder: Path = Path.cwd(),
     remove_after: bool = False,
     split_by_chapters: bool = False,
+    ci: bool = False,
 ) -> None:
     comic = api.load(comic_path)
     iterator = api.convert_progress(
@@ -180,37 +181,59 @@ def cli_convert(
         f"Packing {target_format.value}(s)" if is_single_conversion else "Pre-converting comic"
     )
 
-    try:
-        with typer.progressbar(
-            iterator,
-            length=len_first_conv,
-            label=first_convert_message,
-        ) as progress:
-            for res in progress:
-                if isinstance(res, int):
-                    len_second_conv = res
-                    break
-                if split_by_chapters:
-                    progress.label = res
-    except RuntimeError as err:
-        # handle kindlegen errors
-        typer.secho(str(err), fg=typer.colors.RED)
-        raise typer.Abort() from None
-
-    if not is_single_conversion:
-        # it *should* be guaranteed len_second_conv exists
+    if ci:
+        typer.echo(f"Starting conversion: {first_convert_message} (0/{len_first_conv})")
+        progress_count = 0
+        for res in iterator:
+            progress_count += 1
+            percent = int((progress_count / len_first_conv) * 100)
+            if isinstance(res, int):
+                len_second_conv = res
+                typer.echo(
+                    f"Pre-conversion complete ({percent}%), "
+                    f"starting final packing (0/{len_second_conv})"
+                )
+                progress_count = 0
+                for _ in iterator:
+                    progress_count += 1
+                    percent = int((progress_count / len_second_conv) * 100)
+                    typer.echo(f"Packing ({percent}%) - {progress_count}/{len_second_conv}...")
+                break
+            else:
+                typer.echo(f"Converting ({percent}%) - {progress_count}/{len_first_conv}: {res}")
+    else:
         try:
             with typer.progressbar(
                 iterator,
-                length=len_second_conv,
-                label=f"Packing {target_format.value}",
+                length=len_first_conv,
+                label=first_convert_message,
             ) as progress:
-                for _ in progress:
-                    ...
+                for res in progress:
+                    if isinstance(res, int):
+                        len_second_conv = res
+                        break
+                    if split_by_chapters:
+                        progress.label = res
         except RuntimeError as err:
             # handle kindlegen errors
             typer.secho(str(err), fg=typer.colors.RED)
             raise typer.Abort() from None
+
+    if not is_single_conversion:
+        # it *should* be guaranteed len_second_conv exists
+        if not ci:
+            try:
+                with typer.progressbar(
+                    iterator,
+                    length=len_second_conv,
+                    label=f"Packing {target_format.value}",
+                ) as progress:
+                    for _ in progress:
+                        ...
+            except RuntimeError as err:
+                # handle kindlegen errors
+                typer.secho(str(err), fg=typer.colors.RED)
+                raise typer.Abort() from None
 
     if not split_by_chapters:
         dest_file = dest_folder / f"{comic.metadata.title_slug}.{target_format.value}"
@@ -219,7 +242,9 @@ def cli_convert(
         typer.secho(f"Successfully converted to {dest_folder}", fg=typer.colors.GREEN)
 
 
-def cli_process(comic_path: Path, options: list[ProcessOps], config: ProcessConfig) -> None:
+def cli_process(
+    comic_path: Path, options: list[ProcessOps], config: ProcessConfig, ci: bool = False
+) -> None:
     if ProcessOps.NO_POSTPROCESSING in options:
         return
 
@@ -233,17 +258,24 @@ def cli_process(comic_path: Path, options: list[ProcessOps], config: ProcessConf
         raise typer.Exit(1) from err
 
     typer.secho(f"Applying processing options: {', '.join(options)}", fg=typer.colors.GREEN)
-    try:
-        with typer.progressbar(
-            api.process_progress(comic_path, options, config),
-            length=len(comic.chapters),
-            label="Processing",
-        ) as progress:
-            for _ in progress:
-                pass
-    except ProcessOptionMismatchError as err:
-        typer.secho(f"Could not apply processing options: {err}", fg=typer.colors.RED)
-        raise typer.Exit(1) from err
+    if ci:
+        total_items = len(comic.chapters)
+        typer.echo(f"Processing (0%) - 0/{total_items}...")
+        for i, _ in enumerate(api.process_progress(comic_path, options, config), start=1):
+            percent = int((i / total_items) * 100)
+            typer.echo(f"Processing ({percent}%) - {i}/{total_items}...")
+    else:
+        try:
+            with typer.progressbar(
+                api.process_progress(comic_path, options, config),
+                length=len(comic.chapters),
+                label="Processing",
+            ) as progress:
+                for _ in progress:
+                    pass
+        except ProcessOptionMismatchError as err:
+            typer.secho(f"Could not apply processing options: {err}", fg=typer.colors.RED)
+            raise typer.Exit(1) from err
 
 
 @app.command(no_args_is_help=True)
@@ -269,6 +301,12 @@ def convert(
         help="Instead of returning one large comic file, create one comic"
         "file for each chapter (applies only to Mandown-created comic folders)",
     ),
+    ci: bool = typer.Option(
+        False,
+        "--ci",
+        help="CI mode: use text logs with percentages instead of progress bars "
+        "for automated environments.",
+    ),
 ) -> None:
     """
     Convert a comic OR comic folder into CBZ/EPUB/PDF.
@@ -280,7 +318,7 @@ def convert(
     mandown convert epub /path/to/comic.pdf
     """
     typer.echo(f"Converting to {convert_to}...")
-    cli_convert(folder_path, convert_to, dest, remove_after, split_by_chapters)
+    cli_convert(folder_path, convert_to, dest, remove_after, split_by_chapters, ci=ci)
 
 
 @app.command(no_args_is_help=True)
@@ -300,6 +338,12 @@ def process(
         "--profile",
         "-o",
         help="RESIZE ONLY: The device profile to use (cannot be used with `target-size`)",
+    ),
+    ci: bool = typer.Option(
+        False,
+        "--ci",
+        help="CI mode: use text logs with percentages instead of progress bars "
+        "for automated environments.",
     ),
 ) -> None:
     """
@@ -327,7 +371,7 @@ def process(
     except Exception as err:
         typer.secho(f"Could not apply processing options: {err}", fg=typer.colors.RED)
         raise typer.Exit(1) from err
-    cli_process(folder_path, options, config)
+    cli_process(folder_path, options, config, ci=ci)
 
 
 @app.command(no_args_is_help=True)
@@ -386,6 +430,12 @@ def get(
         help="IF CONVERTING: Instead of returning one large comic file, create one comic"
         "file for each chapter (applies only to Mandown-created comic folders)",
     ),
+    ci: bool = typer.Option(
+        False,
+        "--ci",
+        help="CI mode: use text logs with percentages instead of progress bars "
+        "for automated environments.",
+    ),
 ) -> None:
     """
     Download from a URL chapters start_chapter to end_chapter.
@@ -431,20 +481,36 @@ def get(
 
     # download
     typer.echo(f"Downloading {end_chapter - start_chapter} chapter(s)...")
-    try:
-        with typer.progressbar(
-            api.download_progress(comic, dest, threads=maxthreads),
-            length=len(comic.chapters),
-        ) as progress:
-            for title in progress:
-                progress.label = title
-    except ImageDownloadError as err:
-        typer.secho(
-            "Some image links on the host site were broken, exiting...",
-            fg=typer.colors.BRIGHT_YELLOW,
-        )
-        typer.secho(f"Error: {err}", fg=typer.colors.RED)
-        raise typer.Abort(3) from err
+    chapter_count = len(comic.chapters)
+    if ci:
+        try:
+            for i, title in enumerate(
+                api.download_progress(comic, dest, threads=maxthreads), start=1
+            ):
+                percent = int((i / chapter_count) * 100)
+                typer.echo(f"Downloaded ({percent}%) - {i}/{chapter_count}: {title}")
+        except ImageDownloadError as err:
+            typer.secho(
+                "Some image links on the host site were broken, exiting...",
+                fg=typer.colors.BRIGHT_YELLOW,
+            )
+            typer.secho(f"Error: {err}", fg=typer.colors.RED)
+            raise typer.Abort(3) from err
+    else:
+        try:
+            with typer.progressbar(
+                api.download_progress(comic, dest, threads=maxthreads),
+                length=len(comic.chapters),
+            ) as progress:
+                for title in progress:
+                    progress.label = title
+        except ImageDownloadError as err:
+            typer.secho(
+                "Some image links on the host site were broken, exiting...",
+                fg=typer.colors.BRIGHT_YELLOW,
+            )
+            typer.secho(f"Error: {err}", fg=typer.colors.RED)
+            raise typer.Abort(3) from err
 
     full_dest_folder = dest.absolute() / comic.metadata.title_slug
     typer.secho(
@@ -463,7 +529,7 @@ def get(
             typer.secho(f"Could not apply processing options: {err}", fg=typer.colors.RED)
             raise typer.Exit(1) from err
 
-        cli_process(dest / comic.metadata.title_slug, processing_options, config)
+        cli_process(dest / comic.metadata.title_slug, processing_options, config, ci=ci)
 
     # convert
     if convert_to != ConvertFormats.NONE:
@@ -473,6 +539,7 @@ def get(
             dest,
             remove_after,
             split_by_chapters,
+            ci=ci,
         )
 
 

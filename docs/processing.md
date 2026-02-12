@@ -16,6 +16,12 @@ For example, the following command will rotate double pages and then trim their 
 mandown process rotate_double_pages trim_borders /path/to/comic
 ```
 
+For CI/automated environments, use `--ci` for text logs with percentages instead of visual progress bars:
+
+```
+mandown process rotate_double_pages trim_borders /path/to/comic --ci
+```
+
 In the library, this is done through the `mandown.process` API, which accepts a Path and a list of operations. The following code will do the same thing:
 
 ```python

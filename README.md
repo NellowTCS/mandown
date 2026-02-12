@@ -20,6 +20,7 @@ Mandown is a comic downloader and a CBZ, EPUB, MOBI, and/or PDF converter. It al
   - Resize images
 - Convert downloaded comics to CBZ, EPUB, MOBI, or PDF
   - Convert any other CBZ, EPUB, MOBI, or PDF comic to CBZ, EPUB, MOBI, or PDF
+- CLI-friendly CI mode for automated environments (text logs instead of progress bars)
 - [A library to easily do all of this from other Python scripts](#basic-library-usage)
 
 ## Usage
@@ -34,6 +35,12 @@ To convert the downloaded contents to CBZ/EPUB/MOBI/PDF, append the `--convert` 
 
 ```
 mandown get <URL> --convert epub --process rotate_double_pages
+```
+
+For CI/automated environments, use `--ci` for text logs with percentages instead of visual progress bars:
+
+```
+mandown get <URL> --convert epub --ci
 ```
 
 To download only a certain range of chapters, append the `--start` and/or `--end` options.
